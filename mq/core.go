@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-//Broker接口
+//Broker 接口
 type Broker interface {
 	publish(topic string, msg interface{}) error
 	subscribe(topic string) (<-chan interface{}, error)
@@ -16,7 +16,7 @@ type Broker interface {
 	setConditions(capacity int)
 }
 
-//Broker结构定义
+//BrokerImpl 结构定义
 type BrokerImpl struct {
 	//关闭消息队列
 	exit chan bool
@@ -29,6 +29,7 @@ type BrokerImpl struct {
 	sync.RWMutex
 }
 
+// NewBroker 创建新的Broker示例
 func NewBroker() *BrokerImpl {
 	return &BrokerImpl{
 		exit:   make(chan bool),
@@ -97,5 +98,46 @@ func (b *BrokerImpl) broadcast(msg interface{}, subscribers []chan interface{}) 
 	for j := 0; j < concurrency; j++ {
 		go pub(j)
 	}
-
 }
+
+func (b *BrokerImpl) subscribe(topic string) (<-chan interface{}, error) {
+	select {
+	case <-b.exit:
+		return nil, errors.New("broker closed")
+	default:
+	}
+	
+	ch := make(chan interface{}, b.capacity)
+	b.Lock()
+	b.topics[topic] = append(b.topics[topic], ch)
+	b.Unlock()
+	return ch, nil;
+}
+
+func (b *BrokerImpl) unsubscribe(topic string, sub <-chan interface{}) (error) {
+	select {
+	case <-b.exit:
+		return errors.New("broker closed")
+	default:
+	}
+
+	b.RLock()
+	subs, ok := b.topics[topic]
+	b.RUnlock()
+	if !ok {
+		return nil
+	}
+
+	var newSubs []chan interface{}
+	for _, subscribe := range subs {
+		if (subscribe == sub) {
+			continue
+		}
+		newSubs = append(newSubs, subscribe)
+	}
+	b.Lock()
+	b.topics[topic] = newSubs
+	b.Unlock()
+	return nil
+}
+
